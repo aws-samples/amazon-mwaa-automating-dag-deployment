@@ -1,0 +1,372 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+  CodeRepoURL:
+    Type: String
+    Description: Code Repository URL
+
+  MWAASourceBucket:
+    Type: String
+    Description: "MWAA S3 Bucket Name"
+  
+  MWAADAGsFolder:
+    Type: String
+    Description: "DAG Folder"
+    Default: "dags"
+
+  GitHubAccountName:
+    Type: String
+    Description: "Github account name"
+  ServiceName:
+    Type: String
+    Description: "service"
+    Default: "mwaa-cicd"
+
+  Stage:
+    Type: String
+    Description: "prod/test/stage"
+    Default: "stage"
+
+  MWAAEnvName:
+    Type: String
+    Description: "MWAA Env Name"
+    Default: "/mwaa/cicd/env/name"
+
+  PYCONSTRAINTS:
+    Type: String
+    Description: "Python Contrainsts file for checking"
+    Default: "https://raw.githubusercontent.com/apache/airflow/constraints-2.0.2/constraints-3.7.txt"
+
+ 
+Resources:
+  #############
+  # ARTIFACTS #
+  #############
+
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+
+  LastCommitParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !sub /mwaa/cicd/${Stage}/last-commit
+      Type: String
+      Value: "0"
+
+  #############
+  # CODEBUILD #
+  #############
+
+  BuildProjectRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: BuildProjectPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketVersioning
+                  - s3:ListBucket
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${ArtifactBucket}"
+              - Effect: Allow
+                Action:
+                  - airflow:GetEnvironment
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:Get*
+                  - s3:PutObject
+                  - s3:PutObjectVersion
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${ArtifactBucket}/*"
+              - Effect: Allow
+                Action: 
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:List*
+                  - s3:head*
+                  - s3:get*
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${MWAASourceBucket}/*"
+              - Effect: Allow
+                Action: 
+                  - s3:List*
+                  - s3:GetBucketVersioning
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${MWAASourceBucket}"
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter*
+                  - ssm:PutParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*"
+              - Effect: Allow
+                Action:
+                  - codebuild:CreateReportGroup
+                  - codebuild:CreateReport
+                  - codebuild:UpdateReport
+                  - codebuild:BatchPutTestCases
+                Resource: !Sub "arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:report-group/*"
+              - Effect: Allow
+                Action:
+                  - ecr:*
+                Resource: "*"
+
+
+  BuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        # No artifacts as the buildspec controls where the files are uploaded
+        Type: NO_ARTIFACTS
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        EnvironmentVariables:
+          - Name: COMMIT_PARAMETER
+            Value: !Ref LastCommitParameter
+          - Name: S3_BUCKET
+            Value: !Ref ArtifactBucket
+          - Name: ENV
+            Value: !Ref Stage
+          - Name: REGION
+            Value: !Sub ${AWS::Region}
+          - Name: ACCOUNT_NUMBER
+            Value: !Sub ${AWS::AccountId}
+          - Name: CODE_REPO
+            Value: !Sub "https://github.com/${GitHubAccountName}/${CodeRepoURL}.git"
+          - Name: DAG_BUCKET
+            Value: !Ref MWAASourceBucket
+          - Name: MWAA_ENV
+            Value: !Sub /mwaa/cicd/mwaa-${Stage}-${ServiceName}/name
+          - Name: PY_CONSTRAINTS
+            Value: !Ref PYCONSTRAINTS
+        Image: aws/codebuild/standard:3.0
+        Type: LINUX_CONTAINER
+        PrivilegedMode: true
+
+      ServiceRole: !GetAtt BuildProjectRole.Arn
+      Source:
+        BuildSpec: build/buildspec.yaml
+        GitCloneDepth: 0
+        Location: !Sub "https://github.com/${GitHubAccountName}/${CodeRepoURL}"
+        Type: GITHUB
+      SourceVersion: refs/heads/main
+
+  BuildLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/codebuild/${BuildProject}"
+      RetentionInDays: 7
+
+
+  ############
+  # PIPELINE #
+  ############
+
+  PipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub "${AWS::StackName}-PipelinePolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketVersioning
+                  - s3:ListBucket
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${ArtifactBucket}"
+              - Effect: Allow
+                Action:
+                  - s3:Get*
+                  - s3:Put*
+                  - s3:PutObjectVersion
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${ArtifactBucket}/*"
+              - Effect: Allow
+                Action:
+                  - s3:Put*
+                  - s3:PutObjectVersion
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${MWAASourceBucket}/*"
+              - Effect: Allow
+                Action:
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:ExecuteChangeSet
+                Resource: !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/mwaa-*"
+              - Effect: Allow
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                Resource: !GetAtt BuildProject.Arn
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: !GetAtt CloudFormationRole.Arn
+  CloudFormationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub "${AWS::StackName}-CFPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:*
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - iam:*
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - airflow:*
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:*
+                  - ssm:*
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:ExecuteChangeSet
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                Resource: !GetAtt BuildProject.Arn
+
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      RoleArn: !GetAtt PipelineRole.Arn
+      Stages:
+
+        ##########
+        # SOURCE #
+        ##########
+
+        - Name: source
+          Actions:
+            - Name: Checkout
+              ActionTypeId:
+                Category: Source
+                Owner: "ThirdParty"
+                Provider: GitHub
+                Version: "1"
+              Configuration:
+                Owner: !Ref "GitHubAccountName"
+                Repo: !Ref "CodeRepoURL"
+                Branch: "main"
+                OAuthToken: '{{resolve:secretsmanager:MyGitHubToken:SecretString:token}}'
+              OutputArtifacts:
+                - Name: SourceArtifact
+              RunOrder: 1
+        ##################
+        # TESTS/BUILDS #
+        ##################
+        - Name: Test
+          Actions:
+            - Name: build
+              ActionTypeId:
+                Category: Test
+                Provider: CodeBuild
+                Owner: AWS
+                Version: "1"
+              Configuration:
+                ProjectName: !Ref BuildProject
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: MWAATemplateArtifact
+                - Name: DagsArtifact
+
+              RunOrder: 1
+
+        ##################
+        # PROVISION #
+        ##################
+
+        - Name: infra
+          Actions:
+            - Name: create-changeset
+              ActionTypeId:
+                Category: Deploy
+                Provider: CloudFormation
+                Owner: AWS
+                Version: "1"
+              Configuration:
+                ActionMode: CHANGE_SET_REPLACE
+                StackName: !Sub "mwaa-${Stage}-${ServiceName}"
+                ChangeSetName: !Sub "mwaa-${Stage}-${ServiceName}"
+                Capabilities: CAPABILITY_IAM,CAPABILITY_AUTO_EXPAND
+                RoleArn: !GetAtt CloudFormationRole.Arn
+                TemplateConfiguration: !Sub "MWAATemplateArtifact::${Stage}.json"
+                TemplatePath: "MWAATemplateArtifact::template.yaml"
+              InputArtifacts:
+                - Name: MWAATemplateArtifact
+              RunOrder: 1
+            - Name: execute-changeset
+              ActionTypeId:
+                Category: Deploy
+                Provider: CloudFormation
+                Owner: AWS
+                Version: "1"
+              Configuration:
+                ActionMode: CHANGE_SET_EXECUTE
+                StackName: !Sub "mwaa-${Stage}-${ServiceName}"
+                ChangeSetName: !Sub "mwaa-${Stage}-${ServiceName}"
+                RoleArn: !GetAtt CloudFormationRole.Arn
+              RunOrder: 2
+            - Name: Deploy-Dags
+              ActionTypeId:
+                Category: Deploy
+                Provider: S3
+                Owner: AWS
+                Version: "1"
+              InputArtifacts: 
+                - Name: DagsArtifact
+              Configuration:
+                BucketName: !Ref MWAASourceBucket
+                ObjectKey: !Ref MWAADAGsFolder
+                Extract: "true"
+              RunOrder: 3
+
+

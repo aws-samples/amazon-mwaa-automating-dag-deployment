@@ -1,0 +1,8 @@
+{
+    "Parameters":{
+        "EnvironmentName":"MWAAEnvironment1",
+        "RequirementsFileVersion":"REQUIREMENT_FILE_VERSION",
+        "PluginsVersion":"PLUGIN_FILE_VERSION",
+        "S3Bucket":"{REPLACE WITH S3BUCKET}"
+    }
+}

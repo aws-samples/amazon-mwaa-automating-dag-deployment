@@ -1,0 +1,53 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.8
+
+  pre_build:
+    commands:
+      - apt-get update -y
+      - apt-get install -y jq
+      - pip3 install docker
+      - ls
+      # run test
+      - python3 build/local-runner.py $REGION $ACCOUNT_NUMBER `pwd` dags/requirements.txt ${PY_CONSTRAINTS}
+      # identify changes in plugins and requirement, 
+      - COMMIT_ID=$(aws ssm get-parameter --name ${COMMIT_PARAMETER} | jq -r '.Parameter.Value')
+      - |- 
+         if [ "$COMMIT_ID" -eq "0" ]; then
+            COMMIT_ID=$CODEBUILD_RESOLVED_SOURCE_VERSION
+         fi
+         
+      -
+      - git clone ${CODE_REPO} sourcecode
+      - cd sourcecode
+      - git checkout $COMMIT_ID 
+      - git diff-tree --no-commit-id --name-only -r $COMMIT_ID > file.txt
+      - cat file.txt
+      - requirementfile=$(grep dags/requirements.txt file.txt | cat )
+      - plugins=$(grep plugins/ file.txt | cat)
+  build:
+    commands:
+      # Get out of the cloned repo and bundle the plugins. THis will be copied to S3 bucket if the files are changed
+      - cd ../plugins
+      - zip -r plugins.zip *
+      - cd ..
+      # Update parameter file with version number of requirements and plugins 
+      - python3 build/plugin-versioning.py ${MWAA_ENV} ${DAG_BUCKET} infra/parameters/${ENV}.json $plugins $requirementfile 
+  post_build:
+    commands:
+      - aws ssm put-parameter --name ${COMMIT_PARAMETER} --type String --value $CODEBUILD_RESOLVED_SOURCE_VERSION --overwrite
+
+artifacts:
+  secondary-artifacts:
+    MWAATemplateArtifact:
+      files:
+        - infra/parameters/${ENV}.json
+        - infra/template.yaml
+      discard-paths: yes
+    DagsArtifact:
+      files:
+        - dags/*
+      discard-paths: yes
