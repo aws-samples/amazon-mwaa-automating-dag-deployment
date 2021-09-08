@@ -4,7 +4,6 @@ Parameters:
   S3Bucket:
     Type: String
     Description: S3Bucket Where the dags are stored
-    AllowedPattern: "[a-z-0-9]+"
 
   EnvironmentName:
     Description: An environment name that is prefixed to resource names

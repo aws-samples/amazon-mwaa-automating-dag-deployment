@@ -17,6 +17,11 @@ Parameters:
   GitHubAccountName:
     Type: String
     Description: "Github account name"
+
+  CodeStarConnectionArn:
+    Type: String
+    Description: "Codestar connection Arn"
+
   ServiceName:
     Type: String
     Description: "service"
@@ -52,7 +57,7 @@ Resources:
   LastCommitParameter:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !sub /mwaa/cicd/${Stage}/last-commit
+      Name: !Sub "/mwaa/cicd/${Stage}/last-commit"
       Type: String
       Value: "0"
 
@@ -129,6 +134,11 @@ Resources:
   BuildProject:
     Type: AWS::CodeBuild::Project
     Properties:
+      Cache:
+        Location: LOCAL
+        Modes: 
+          - LOCAL_DOCKER_LAYER_CACHE
+        Type: LOCAL
       Artifacts:
         # No artifacts as the buildspec controls where the files are uploaded
         Type: NO_ARTIFACTS
@@ -222,6 +232,10 @@ Resources:
                 Resource: !GetAtt BuildProject.Arn
               - Effect: Allow
                 Action:
+                  - codestar-connections:UseConnection
+                Resource: !Ref CodeStarConnectionArn
+              - Effect: Allow
+                Action:
                   - iam:PassRole
                 Resource: !GetAtt CloudFormationRole.Arn
   CloudFormationRole:
@@ -288,14 +302,14 @@ Resources:
             - Name: Checkout
               ActionTypeId:
                 Category: Source
-                Owner: "ThirdParty"
-                Provider: GitHub
-                Version: "1"
+                Owner: "AWS"
+                Provider: CodeStarSourceConnection
+                Version: '1'
               Configuration:
-                Owner: !Ref "GitHubAccountName"
-                Repo: !Ref "CodeRepoURL"
-                Branch: "main"
-                OAuthToken: '{{resolve:secretsmanager:MyGitHubToken:SecretString:token}}'
+                ConnectionArn: !Ref CodeStarConnectionArn
+                FullRepositoryId: !Sub "${GitHubAccountName}/${CodeRepoURL}"
+                BranchName: "main"
+                # OAuthToken: '{{resolve:secretsmanager:MyGitHubToken:SecretString:token}}'
               OutputArtifacts:
                 - Name: SourceArtifact
               RunOrder: 1

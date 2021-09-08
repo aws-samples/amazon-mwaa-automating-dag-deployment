@@ -24,8 +24,7 @@ phases:
       - git clone ${CODE_REPO} sourcecode
       - cd sourcecode
       - git checkout $COMMIT_ID 
-      - git diff-tree --no-commit-id --name-only -r $COMMIT_ID > file.txt
-      - cat file.txt
+      - git diff-tree --name-only -r $CODEBUILD_RESOLVED_SOURCE_VERSION $COMMIT_ID > file.txt
       - requirementfile=$(grep dags/requirements.txt file.txt | cat )
       - plugins=$(grep plugins/ file.txt | cat)
   build:

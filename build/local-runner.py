@@ -13,7 +13,7 @@ returns non-zero exit code if the test fails
 """
 def testWorkflow():
     mwaa_image=account+".dkr.ecr."+region+".amazonaws.com/mwaa-local:2.0"
-    mwaa_db_image=account+".dkr.ecr."+region+".amazonaws.com/mwaa-db:latest"
+    mwaa_db_image="docker.io/postgres:10-alpine"
     mwaa = None
     postgres = None
     try:
@@ -27,7 +27,7 @@ def testWorkflow():
         auth_config = {'username': username, 'password': password}
         docker_client.images.pull(mwaa_image, auth_config=auth_config)
 
-        docker_client.images.pull(mwaa_db_image, auth_config=auth_config)
+        docker_client.images.pull(mwaa_db_image)
 
         postgres = docker_client.containers.run(
             mwaa_db_image,
@@ -94,7 +94,7 @@ Test requirements can be loaded , check if the contraint file is in the requirem
 def testRequirements(mwaa, requirements):
 
     print("start testing requirements ...")
-
+    exit_code = 0
     with open(requirements, "r") as requirementFile:
         requirementFileContent = requirementFile.read()
         if constraintFileName not in requirementFileContent:

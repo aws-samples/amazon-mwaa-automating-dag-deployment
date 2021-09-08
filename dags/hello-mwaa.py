@@ -22,7 +22,7 @@ default_args = {
 }
 
 def print_hello():
- return 'Hello Wolrd'
+ return 'Hello World'
 
 
 with DAG(
