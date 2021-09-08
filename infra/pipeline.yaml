@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: 2010-09-09
 
 Parameters:
-  CodeRepoURL:
+  CodeRepoName:
     Type: String
     Description: Code Repository URL
 
@@ -140,8 +140,7 @@ Resources:
           - LOCAL_DOCKER_LAYER_CACHE
         Type: LOCAL
       Artifacts:
-        # No artifacts as the buildspec controls where the files are uploaded
-        Type: NO_ARTIFACTS
+        Type: CODEPIPELINE
       Environment:
         ComputeType: BUILD_GENERAL1_SMALL
         EnvironmentVariables:
@@ -156,7 +155,7 @@ Resources:
           - Name: ACCOUNT_NUMBER
             Value: !Sub ${AWS::AccountId}
           - Name: CODE_REPO
-            Value: !Sub "https://github.com/${GitHubAccountName}/${CodeRepoURL}.git"
+            Value: !Sub "https://github.com/${GitHubAccountName}/${CodeRepoName}.git"
           - Name: DAG_BUCKET
             Value: !Ref MWAASourceBucket
           - Name: MWAA_ENV
@@ -170,9 +169,9 @@ Resources:
       ServiceRole: !GetAtt BuildProjectRole.Arn
       Source:
         BuildSpec: build/buildspec.yaml
-        GitCloneDepth: 0
-        Location: !Sub "https://github.com/${GitHubAccountName}/${CodeRepoURL}"
-        Type: GITHUB
+        # GitCloneDepth: 0
+        # Location: !Sub "https://github.com/${GitHubAccountName}/${CodeRepoName}"
+        Type: CODEPIPELINE
       SourceVersion: refs/heads/main
 
   BuildLogGroup:
@@ -307,7 +306,7 @@ Resources:
                 Version: '1'
               Configuration:
                 ConnectionArn: !Ref CodeStarConnectionArn
-                FullRepositoryId: !Sub "${GitHubAccountName}/${CodeRepoURL}"
+                FullRepositoryId: !Sub "${GitHubAccountName}/${CodeRepoName}"
                 BranchName: "main"
                 # OAuthToken: '{{resolve:secretsmanager:MyGitHubToken:SecretString:token}}'
               OutputArtifacts:
