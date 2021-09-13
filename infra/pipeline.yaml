@@ -134,11 +134,11 @@ Resources:
   BuildProject:
     Type: AWS::CodeBuild::Project
     Properties:
-      Cache:
-        Location: LOCAL
-        Modes: 
-          - LOCAL_DOCKER_LAYER_CACHE
-        Type: LOCAL
+      # Cache:
+      #   Location: LOCAL
+      #   Modes: 
+      #     - LOCAL_DOCKER_LAYER_CACHE
+      #   Type: LOCAL
       Artifacts:
         Type: CODEPIPELINE
       Environment:
