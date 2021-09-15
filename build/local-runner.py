@@ -12,8 +12,8 @@ This runs mwaa local image and the DB. After they are run, it runs the DAG integ
 returns non-zero exit code if the test fails
 """
 def testWorkflow():
-    mwaa_image=account+".dkr.ecr."+region+".amazonaws.com/mwaa-local:2.0"
-    mwaa_db_image="docker.io/postgres:10-alpine"
+    mwaa_image=account+".dkr.ecr."+region+".amazonaws.com/mwaa-local:2.0.2"
+    mwaa_db_image=account+".dkr.ecr."+region+".amazonaws.com/mwaa-db:10-alpine"
     mwaa = None
     postgres = None
     try:
@@ -24,10 +24,11 @@ def testWorkflow():
         username, password = base64.b64decode(token['authorizationData'][0]['authorizationToken']).decode().split(':')
         registry = token['authorizationData'][0]['proxyEndpoint']
         docker_client.login(username, password, registry=registry)
+
         auth_config = {'username': username, 'password': password}
         docker_client.images.pull(mwaa_image, auth_config=auth_config)
 
-        docker_client.images.pull(mwaa_db_image)
+        docker_client.images.pull(mwaa_db_image, auth_config=auth_config)
 
         postgres = docker_client.containers.run(
             mwaa_db_image,

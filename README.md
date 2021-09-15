@@ -35,6 +35,15 @@ aws s3api put-bucket-versioning --bucket {bucketname} --versioning-configuration
 aws s3api put-public-access-block --bucket {bucketname} --public-access-block-configuration "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
 
 ```
+
+#### Prepare images
+
+We use MWAA local image and Postgres image for testing the DAGs and dependancies. These images are built and pushed to ECR repo. During the test phase, CodeBuild job runs ./build/local-runner.py to download the images from ECR and runs them. If you prefer to use a different registry, You can. Just change the code in build/local-runner.py to use the registry.
+
+- Login to ECR
+```bash
+aws ecr get-login-password --region {region}  | docker login --username AWS --password-stdin {account}.dkr.ecr.{region}.amazonaws.com
+```
 - Build [MWAA local runner](https://github.com/aws/aws-mwaa-local-runner) and push to ECR repo. Follow the instructions in MWAA local runner repo to build the image for version 2.0.2 of the MWAA. Here are the commands you will be running.
 ```bash
 git clone https://github.com/aws/aws-mwaa-local-runner.git
@@ -54,19 +63,35 @@ if you have just one image, you can use
 docker image ls | grep mwaa-local | awk '{print $3 }'
 ```
 
- Following are the commands to push the image to your ECR repo. if you are not using ECR, you will have to change the registry info in build/local-runner.py. 
+ Create an ECR repo and push the image to your ECR repo. if you are not using ECR, you will have to change the registry info in build/local-runner.py. 
 
 ```bash
-aws ecr get-login-password --region {region}  | docker login --username AWS --password-stdin {account}.dkr.ecr.{region}.amazonaws.com
 
-aws ecr create-repository --repository-name mwaa-local --image-tag-mutability IMMUTABLE --image-scanning-configuration scanOnPush=true
+aws ecr create-repository --repository-name mwaa-local --image-tag-mutability MUTABLE --image-scanning-configuration scanOnPush=true
 
-docker tag {imageid} {account}.dkr.ecr.{region}.amazonaws.com/mwaa-local:2.0
-docker push {account}.dkr.ecr.{region}.amazonaws.com/mwaa-local:2.0
+docker tag {imageid} {account}.dkr.ecr.{region}.amazonaws.com/mwaa-local:2.0.2
+docker push {account}.dkr.ecr.{region}.amazonaws.com/mwaa-local:2.0.2
 
 ```
 
+- Push Postgres container to ECR. This step is to avoid rate limiting errors with anonymous logging. If you would like to stick to Postgres image in docker hub, Refer [A few things to know]()
 
+```bash
+  docker image pull postgres:10-alpine
+```
+Search for the image to capture the image ID 
+```bash
+  docker image ls | grep "postgres" |  awk '{print $3 }'
+```
+ Create an ECR repo and push the image to your ECR repo. if you are not using ECR, you will have to change the registry info in build/local-runner.py. 
+
+```bash
+  aws ecr create-repository --repository-name mwaa-db --image-tag-mutability IMMUTABLE --image-scanning-configuration scanOnPush=true
+
+  docker tag {imageid} {account}.dkr.ecr.{region}.amazonaws.com/mwaa-db:10-alpine
+  docker push {account}.dkr.ecr.{region}.amazonaws.com/mwaa-db:10-alpine
+
+```
 - Create an AWS CodeStar connection for connecting to your GitHub repo
 
 ```bash
@@ -86,21 +111,23 @@ After creating the connection, Follow the instructions [here](https://docs.aws.a
 ### Create the build pipeline
 
 ```bash
-aws cloudformation create-stack --stack-name mwaa-cicd  --template-body file://infra/pipeline.yaml  --capabilities CAPABILITY_AUTO_EXPAND CAPABILITY_IAM --parameters ParameterKey=CodeRepoName,ParameterValue={CodeRepoName} ParameterKey=MWAASourceBucket,ParameterValue={MWAASourceBucket} ParameterKey=GitHubAccountName,ParameterValue={GitHubAccountName} ParameterKey=CodeStarConnectionArn,ParameterValue={CodeStarConnectionArn}
+aws cloudformation create-stack --stack-name mwaa-cicd  --template-body file://infra/pipeline.yaml  --capabilities CAPABILITY_AUTO_EXPAND CAPABILITY_IAM --parameters ParameterKey=CodeRepoName,ParameterValue={CodeRepoName} ParameterKey=MWAASourceBucket,ParameterValue={MWAASourceBucket} ParameterKey=GitHubAccountName,ParameterValue={GitHubAccountName} ParameterKey=CodeStarConnectionArn,ParameterValue={CodeStarConnectionArn} ParameterKey=PYCONSTRAINTS,ParameterValue={ConstraintsFileLocation}
 
 ```
 see example below
 ``` bash
-aws cloudformation create-stack --stack-name mwaa-cicd  --template-body file://infra/pipeline.yaml  --capabilities CAPABILITY_AUTO_EXPAND CAPABILITY_IAM --parameters ParameterKey=CodeRepoName,ParameterValue=test ParameterKey=MWAASourceBucket,ParameterValue=airflow2.0-us-east-1 ParameterKey=GitHubAccountName,ParameterValue=accountname ParameterKey=CodeStarConnectionArn,ParameterValue=arn:aws:codestar-connections:us-east-1:1234567890:connection/15e9ee86-1082-479a-a9ed-38ca8c680046
+aws cloudformation create-stack --stack-name mwaa-cicd  --template-body file://infra/pipeline.yaml  --capabilities CAPABILITY_AUTO_EXPAND CAPABILITY_IAM --parameters ParameterKey=CodeRepoName,ParameterValue=test ParameterKey=MWAASourceBucket,ParameterValue=airflow2.0-us-east-1 ParameterKey=GitHubAccountName,ParameterValue=accountname ParameterKey=CodeStarConnectionArn,ParameterValue=arn:aws:codestar-connections:us-east-1:1234567890:connection/15e9ee86-1082-479a-a9ed-38ca8c680046  ParameterKey=PYCONSTRAINTS,ParameterValue=https://raw.githubusercontent.com/apache/airflow/constraints-2.0.2/constraints-3.7.txt
 ```
 
 You can access the pipeline by accessing AWS Codepipeline console. You can start the pipeline from there or modify code and commit to your source code repo.
 
-## Some things to know
-- You might run into [rate limiting issue](https://www.docker.com/increase-rate-limits#:~:text=The%20rate%20limits%20of%20100,the%20six%20hour%20window%20elapses.) with codebuild downloading Postgress image. 
 
-    1. You can store the postgres image in your private ECR repo just like the mwaa-local repo. This will be a change in the build/local-runner.py to pull the image from ECR rather than docker.io
-    2. You can store the docker hub credential in secretmanager and use it to login to docker hub. This will require change in CodeBuild role, build/buildspec.yaml as well as build/local-runner.py
+## A few things to know
+- All tests are inside the test folder. One of the DAG integrity test checks the load time to be .5 sec or less. You can change it in test/dag_validation.py
+- requirements.txt is inside the dags folder. If you prefer a different location, make sure you update wherever it is referenced
+- You can use the postgres image from docker.io directly. You might run into [rate limiting issue](https://www.docker.com/increase-rate-limits#:~:text=The%20rate%20limits%20of%20100,the%20six%20hour%20window%20elapses.) with codebuild downloading Postgress image if you are using guest account. 
+
+    You can store the docker hub credential in secretmanager and use it to login to docker hub. This will require change in CodeBuild role, build/buildspec.yaml as well as build/local-runner.py
 ```bash
 env:
   secrets-manager:
