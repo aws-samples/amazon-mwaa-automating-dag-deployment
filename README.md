@@ -124,7 +124,8 @@ You can access the pipeline by accessing AWS Codepipeline console. You can start
 
 ## A few things to know
 - All tests are inside the test folder. One of the DAG integrity test checks the load time to be .5 sec or less. You can change it in test/dag_validation.py
-- requirements.txt is inside the dags folder. If you prefer a different location, make sure you update wherever it is referenced
+- requirements.txt is inside the dags folder. If you prefer a different location, make sure you update wherever it is referenced.
+- Adding constraints file in requirements in a [best practice](https://docs.aws.amazon.com/mwaa/latest/userguide/best-practices-dependencies.html) and the test expects a constraints file in requirements. The file location can be configured as a paramater to the infra/pipeline.yaml. You can place your constraints in plugins and refer as /usr/local/airflow/plugins/{constraints file}.
 - You can use the postgres image from docker.io directly. You might run into [rate limiting issue](https://www.docker.com/increase-rate-limits#:~:text=The%20rate%20limits%20of%20100,the%20six%20hour%20window%20elapses.) with codebuild downloading Postgress image if you are using guest account. 
 
     You can store the docker hub credential in secretmanager and use it to login to docker hub. This will require change in CodeBuild role, build/buildspec.yaml as well as build/local-runner.py
