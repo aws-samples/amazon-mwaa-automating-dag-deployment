@@ -74,7 +74,7 @@ docker push {account}.dkr.ecr.{region}.amazonaws.com/mwaa-local:2.0.2
 
 ```
 
-- Push Postgres container to ECR. This step is to avoid rate limiting errors with anonymous logging. If you would like to stick to Postgres image in docker hub, Refer [A few things to know]()
+- Push Postgres container to ECR. This step is to avoid rate limiting errors with anonymous logging. If you would like to stick to Postgres image in docker hub, Refer [A few things to know](#a-few-things-to-know)
 
 ```bash
   docker image pull postgres:10-alpine
