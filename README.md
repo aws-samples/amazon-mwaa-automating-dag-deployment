@@ -40,30 +40,34 @@ aws s3api put-public-access-block --bucket {bucketname} --public-access-block-co
 
 We use MWAA local image and Postgres image for testing the DAGs and dependancies. These images are built and pushed to ECR repo. During the test phase, CodeBuild job runs ./build/local-runner.py to download the images from ECR and runs them. If you prefer to use a different registry, You can. Just change the code in build/local-runner.py to use the registry.
 
-- Login to ECR
-```bash
-aws ecr get-login-password --region {region}  | docker login --username AWS --password-stdin {account}.dkr.ecr.{region}.amazonaws.com
-```
+
 - Build [MWAA local runner](https://github.com/aws/aws-mwaa-local-runner) and push to ECR repo. Follow the instructions in MWAA local runner repo to build the image for version 2.0.2 of the MWAA. Here are the commands you will be running.
 ```bash
 git clone https://github.com/aws/aws-mwaa-local-runner.git
 cd aws-mwaa-local-runner
 ./mwaa-local-env build-image
 ```
-You will see the imageId at the end of the build process like shown in the pic below
+You will see the imageId at the end of the build process like shown in the pic below. 
 
 ![](./mwaa_imageid.png)
 
+
 You can also use the following command
-```bash
-docker image ls | grep mwaa-local
-```
-if you have just one image, you can use
 ```bash
 docker image ls | grep mwaa-local | awk '{print $3 }'
 ```
+If you got pull access denied error when running `./mwaa-local-env build-image`, You may have to login to public.ecr.
+```bash
+aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
 
- Create an ECR repo and push the image to your ECR repo. if you are not using ECR, you will have to change the registry info in build/local-runner.py. 
+```
+- Login to ECR
+```bash
+aws ecr get-login-password --region {region}  | docker login --username AWS --password-stdin {account}.dkr.ecr.{region}.amazonaws.com
+```
+- Push MWAA Local image
+
+  Create an ECR repo and push the image to your ECR repo. if you are not using ECR, you will have to change the registry info in build/local-runner.py. 
 
 ```bash
 
@@ -73,17 +77,18 @@ docker tag {imageid} {account}.dkr.ecr.{region}.amazonaws.com/mwaa-local:2.0.2
 docker push {account}.dkr.ecr.{region}.amazonaws.com/mwaa-local:2.0.2
 
 ```
+- Push Postgress image
 
-- Push Postgres container to ECR. This step is to avoid rate limiting errors with anonymous logging. If you would like to stick to Postgres image in docker hub, Refer [A few things to know](#a-few-things-to-know)
+  Push Postgres container to ECR. This step is to avoid rate limiting errors with anonymous logging. If you would like to stick to Postgres image in docker hub, Refer [A few things to know](#a-few-things-to-know)
 
 ```bash
   docker image pull postgres:10-alpine
 ```
-Search for the image to capture the image ID 
+  Search for the image to capture the image ID 
 ```bash
   docker image ls | grep "postgres" |  awk '{print $3 }'
 ```
- Create an ECR repo and push the image to your ECR repo. if you are not using ECR, you will have to change the registry info in build/local-runner.py. 
+  Create an ECR repo and push the image to your ECR repo. if you are not using ECR, you will have to change the registry info in build/local-runner.py. 
 
 ```bash
   aws ecr create-repository --repository-name mwaa-db --image-tag-mutability IMMUTABLE --image-scanning-configuration scanOnPush=true
@@ -125,7 +130,7 @@ You can access the pipeline by accessing AWS Codepipeline console. You can start
 ## A few things to know
 - All tests are inside the test folder. One of the DAG integrity test checks the load time to be .5 sec or less. You can change it in test/dag_validation.py
 - requirements.txt is inside the dags folder. If you prefer a different location, make sure you update wherever it is referenced.
-- Adding constraints file is requirements in a [best practice](https://docs.aws.amazon.com/mwaa/latest/userguide/best-practices-dependencies.html) and the test expects a constraints file in requirements. The file location can be configured as a paramater to the infra/pipeline.yaml. You can place your constraints in plugins and refer as /usr/local/airflow/plugins/{constraints file}.
+- Adding constraints file ns requirements is a [best practice](https://docs.aws.amazon.com/mwaa/latest/userguide/best-practices-dependencies.html) and the test expects a constraints file in requirements. The file location can be configured as a paramater to the infra/pipeline.yaml. You can place your constraints in plugins and refer as /usr/local/airflow/plugins/{constraints file}.
 - If you prefer to create MWAA without NAT and use only VPCEndpoints, You can use the template infra/template-private-vpcendpoints.yaml. This disallows any outbound access to internet.
 - You can use the postgres image from docker.io directly. You might run into [rate limiting issue](https://www.docker.com/increase-rate-limits#:~:text=The%20rate%20limits%20of%20100,the%20six%20hour%20window%20elapses.) with codebuild downloading Postgress image if you are using guest account. 
 
@@ -143,7 +148,7 @@ phases:
 
 ```
 
-- The example here are all for 2.0 version of MWAA. You can very well do the same process for 1.10.12. You will just need to build the 1.10.12 version of the image and use it in the local-runner.py
+- The example here are all for 2.0 version of MWAA. You can very well do the same process for 1.10.12. You will  need to build the 1.10.12 version of the image and use it in the local-runner.py
 
 ## Security
 
